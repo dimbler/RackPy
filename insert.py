@@ -11,29 +11,35 @@ from functools import partial
 
 def AssignServerUnit(self,rack_name,unit_number,server_name):
     '''Assign server objects to server chassis'''
+    unit_number = re.sub(r'\s', '', unit_number)
     numbers = unit_number.split(",")
     atoms = ['front', 'interior', 'rear']
+    reorder = []
     for el in numbers:
+	print el
 	m = re.match('^([\d]*)-([\d]*)$', el)
         if m:
-    	    numbers.remove(el)
+    	    #numbers.remove(el)
 	    for x in range(int(m.group(1)), int(m.group(2))+1):
-    		numbers.append(str(x))
+    		reorder.append(str(x))
+    	else:
+    	    reorder.append(el)
 
     rack_id = self.GetObjectId(rack_name)
     server_id = self.GetObjectId(server_name)
     #print rack_id
     #print server_id
     #print numbers
-    for unit in numbers:
-	sql = "SELECT object_id FROM RackSpace where rack_id= %d AND unit_no = '%s'" % (rack_id, unit)
+    for unit in reorder:
+	#sql = "SELECT object_id FROM RackSpace where rack_id= %d AND unit_no = '%s'" % (rack_id, unit)
+	sql = "SELECT O.name, O.objtype_id FROM RackSpace AS RS LEFT JOIN Object AS O ON RS.object_id=O.id where RS.rack_id= %d AND unit_no = '%s' limit 1" % (rack_id, unit)
 	result = self.db_query_one(sql)
 	if result == None:
 	    for atom in atoms:
         	sql = "INSERT INTO RackSpace (rack_id, unit_no, atom, state, object_id) VALUES ('%s', %d, '%s', 'T', %d)" % (rack_id, int(unit), atom, server_id)
         	self.db_insert(sql)
         else:
-    	    return "Уже существует"
+    	    return result
         
     return None
     
@@ -61,9 +67,14 @@ def MatchAttributeId(self,searchstring):
 
 def AddRackObject(rt, ecell, scell):
     #Insert New Rack Object
-    hostname = ecell[61]
-    if not rt.ObjectExistName(hostname):
-	return "Rack Object " + ecell[61]+ " already exist"
+    #hostname = ecell[61]
+    hostname = ecell[scell.index(("Имя хоста").decode('utf8'))]
+    if hostname == 'N/A':
+	hostname = ecell[0]
+    service_purpose = ecell[3]
+    print hostname
+    if rt.ObjectExistName(hostname):
+	return "Rack Object " + ecell[scell.index(("Имя хоста").decode('utf8'))] + " already exist"
     else:
 	if rt.GetDictionaryId(ecell[2]):
 	    server_type_id = rt.GetDictionaryId(ecell[2])
@@ -73,23 +84,38 @@ def AddRackObject(rt, ecell, scell):
 	    print ecell[2] + " added to dictionary"
 	    server_type_id = rt.GetDictionaryId(ecell[2])
 	#Adding Rack Object
-	#rt.AddObject(ecell[61], server_type_id, ecell[3], ecell[61])
+	rt.AddObject(hostname, server_type_id, hostname, hostname)
 	added = 0
 	object_id = rt.GetObjectId(hostname)
 	#Adding General Attribute
 	for Attr in scell:
 	    #Adding Device model
 	    if Attr.encode('utf8') == "Модель":
-		model_id = rt.GetDictionaryId(ecell[scell.index(Attr)])
-		if model_id == None:
-		    model_type_id = (11 if server_type_id == 4 else 12)
+		sql = "SELECT dict_key FROM Dictionary WHERE dict_value = '%s'" % (ecell[scell.index(Attr)])
+		result = rt.db_query_one(sql)
+		#model_id = rt.GetDictionaryId(ecell[scell.index(Attr)])
+		if result == None:
+		    if server_type_id == 4:
+			model_type_id = 11
+		    elif server_type_id == 1502:
+			model_type_id = 31
+		    elif server_type_id == 1504:
+			model_type_id = 33
+		    else:
+			model_type_id = 12
 		    sql = "INSERT INTO Dictionary (chapter_id, dict_sticky, dict_value) VALUES (%d, 'yes', '%s')" % (model_type_id, ecell[scell.index(Attr)])
 		    rt.db_insert(sql)
-		    model_id = rt.GetDictionaryId(ecell[scell.index(Attr)])
+		model_id = rt.GetDictionaryId(ecell[scell.index(Attr)])
 		print "Модель " + str(ecell[scell.index(Attr)])  + " "+ str(model_id)
 		attr_id  = int(rt.MatchAttributeId(Attr));
-		sql = "UPDATE AttributeValue SET uint_value = %d WHERE object_id = %d AND attr_id = %d AND object_tid = %d" % (model_id, object_id, attr_id, server_type_id)
+		sql = "SELECT uint_value FROM AttributeValue WHERE object_id = %d AND attr_id = %d AND object_tid = %d" % (object_id, attr_id, server_type_id)
+		result = rt.db_query_one(sql)
+		if result == None:
+		    sql = "INSERT INTO AttributeValue (uint_value, object_id, attr_id,object_tid) VALUES (%d, %d, %d, %d)" % (model_id, object_id, attr_id, server_type_id)
+		else:
+		    sql = "UPDATE AttributeValue SET uint_value = %d WHERE object_id = %d AND attr_id = %d AND object_tid = %d" % (model_id, object_id, attr_id, server_type_id)
 		rt.db_insert(sql)
+		raw_input("Press Enter to continue...")
 	    #Plecement Server to Rack
 	    elif Attr.encode('utf8') == "Юнит №":
 		racks = ecell[scell.index(Attr)+3].split("-")
@@ -117,12 +143,41 @@ def AddRackObject(rt, ecell, scell):
 				print "Такой стойки нет " + str(rack)
 				continue
 			assign = rt.AssignServerUnit(rack,ecell[scell.index(Attr)],hostname)
-			if assign != None and server_type_id == 1502:
-			    print "Сервер сидит в шасси"
+			if assign != None:
+			    if assign[1] == 1502 and server_type_id == 4:
+				print "Наш cервер сидит в шасси " + str(assign[0])
+				sql = "SELECT child_entity_id FROM EntityLink WHERE child_entity_type = 'object' AND parent_entity_id=%d" % (rt.GetObjectId(assign[0]))
+				result = rt.db_query_one(sql)
+				chassis_count = 1
+				if result != None:
+				    chassis_count = len(result)+1
+				    slot_number = rt.GetAttributeValue(object_id, rt.GetAttributeId("Slot number"))
+				    if slot_number != None:
+					rt.AssignChassisSlot(assign[0], slot_number[0], hostname)
+					print "Уже добавлено в шасси слот: " + str(slot_number[0])
+				    else:
+					rt.AssignChassisSlot(assign[0], chassis_count, hostname)
+				else:
+				    print "Добавляем в шасси слот: " + str(chassis_count)
+				    rt.AssignChassisSlot(assign[0], chassis_count, hostname)
+
+			    elif assign[1] != None and assign[0] != hostname:
+				print "Ошибка добавления сервера в шасси " + str(assign)
+			    else:
+				print "Уже добавлено " + str(assign[0])
 		    else:
-			print "Не размещено: Ошибочные данные размещения"
-		rt.InsertAttribute(object_id,server_type_id,10083,ecell[scell.index(Attr)+2],"NULL",hostname)
+			ke_num = (rt.GetAttributeValue(object_id, rt.GetAttributeId("№ КЭ")))[0]
+			#sql = "SELECT object_id FROM racktables_db.AttributeValue Where string_value='%s'" % (ke_num.split('-')[0])
+			sql = "SELECT object_id FROM racktables_db.AttributeValue Where string_value LIKE '%s%%' and string_value not LIKE '%%-%%'" % (ke_num.split('-')[0])
+			result = rt.db_query_one(sql)
+			#parent_id = result[0]
+			if result != None and server_type_id == 1504:
+			    rt.LinkVirtualHypervisor(result[0], object_id)
+			    print "Мы виртуальная машина"
+			else:
+			    print "Не размещено: Ошибочные данные размещения"
 		raw_input("Press Enter to continue...")
+		rt.InsertAttribute(object_id,server_type_id,10083,ecell[scell.index(Attr)+2],"NULL",hostname)
 	    #Adding Ports count
 	    elif Attr.encode('utf8') == "Всего" and added == 0:
 		print "Кабели"
@@ -133,14 +188,26 @@ def AddRackObject(rt, ecell, scell):
 		added = 1
 	    #Adding IP information
 	    elif Attr.encode('utf8') == "Имя хоста":
-		print "HOSTNAME " + ecell[scell.index(Attr)]
-		rt.UpdateNetworkInterfaceMAC(object_id,ecell[scell.index(Attr)],ecell[scell.index(Attr)+4])
-		rt.InterfaceAddIpv4IP(object_id, ecell[scell.index(Attr)], ecell[scell.index(Attr)+1])
+		#Если действительно есть адрес
+		hostname_index = int(scell.index(Attr))
+		if re.match('\d*\.', ecell[hostname_index+1]):
+		    print "HOSTNAME " + ecell[hostname_index] 
+		    ip_addr = (ecell[hostname_index+1]).split("-")[0]
+		    rt.UpdateNetworkInterfaceMAC(object_id,ecell[hostname_index],ecell[hostname_index+4])
+		    rt.InterfaceAddIpv4IP(object_id, ecell[hostname_index], ip_addr)
+		    rt.InsertAttribute(object_id,server_type_id,10000,ecell[hostname_index+1],"NULL",hostname)
+		
+		scell[hostname_index] = str("Имяхоста").decode('utf8')
+		scell[hostname_index+1] = str("IPaddress").decode('utf8')
+	    #Exception Адрес
+	    elif Attr.encode('utf8') == "Адрес":
+		print 
 	    #adding Other Attribute
 	    elif rt.MatchAttributeId(Attr):
 		attr_id  = int(rt.MatchAttributeId(Attr));
-		print "Attribute " + Attr + " " + str(attr_id)
-		print ecell[scell.index(Attr)]
+		#print " Тип сервера: " + str(server_type_id)
+		print "Attribute " + Attr + " '" + str(attr_id) + "'"
+		#+ " Значение: " + ecell[scell.index(Attr)] 
 		rt.InsertAttribute(object_id,server_type_id,attr_id,ecell[scell.index(Attr)],"NULL",hostname)
 	    #Not Used Attribute
 	    else:
@@ -176,18 +243,19 @@ rt.MatchAttributeId = partial(MatchAttributeId, rt);
 rt.UpdateNetworkInterfaceMAC = partial(UpdateNetworkInterfaceMAC, rt)
 
 #Main part ADD RACK OBJECT
-print AddRackObject(rt,ecell, scell)
+#print AddRackObject(rt,ecell, scell)
 
 # List all objects from database
 print rt.ListObjects()
-exit()
+#exit()
 
 # Parsing from Excel
 wb = openpyxl.load_workbook(filename = 'rvc.xlsx', read_only=True)
 print "Excel loaded successfully"
 for sheetName in wb.get_sheet_names():
-    if re.match(("Сервера|СЕРВЕРА").decode('utf8'), sheetName, re.IGNORECASE):
-	print "Work with sheet " + sheetName
+#    if re.match(("Сервера|СЕРВЕРА").decode('utf8'), sheetName, re.IGNORECASE):
+    if re.match(("Сети|СЕТИ").decode('utf8'), sheetName, re.IGNORECASE):
+	print "Work with shet " + sheetName
 	sheet = wb[sheetName]
         scell = []
 	for row in sheet.iter_rows(min_row=4, max_row=4):
@@ -201,10 +269,24 @@ for sheetName in wb.get_sheet_names():
     			scell.append(sheet.cell(row=1, column=cell.column).value)
 	    with open('sfile', 'wb') as fp:
 		pickle.dump(scell, fp)
-	for row in sheet.iter_rows(min_row=18, max_row=18):
+	i = 5
+	for row in sheet.iter_rows(min_row=5):
+	    print row[0].value
+	    if row[0].value == None: 
+		break
     	    ecell = []
 	    for cell in row:
 		ecell.append(cell.value)
 	    with open('outfile', 'wb') as fp:
 		pickle.dump(ecell, fp)
+		
+	    with open ('outfile', 'rb') as fp:
+	        ecell = pickle.load(fp)
+	    with open ('sfile', 'rb') as fp:
+	        scell = pickle.load(fp)
+
+	    print AddRackObject(rt,ecell, scell)
+
+	    raw_input("Row %d Inserted..." % i)
+	    i = i + 1
 
