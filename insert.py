@@ -115,10 +115,13 @@ def AddRackObject(rt, ecell, scell):
     #hostname = ecell[61]
     hostname = ecell[scell.index(("Имя хоста").decode('utf8'))]
     if (hostname == 'N/A' or hostname == 'N/A' or hostname == 'N/A'):
-	hostname = ecell[0]
-    service_purpose = ecell[3]
+	hostname = ecell[scell.index(("№ КЭ").decode('utf8'))]
+    service_purpose = ecell[scell.index(("Назначение").decode('utf8'))]
     print hostname
     if rt.ObjectExistName(hostname):
+	object_td = rt.GetObjectId(hostname)
+	print rt.GetAttributeId("№ КЭ")
+	print rt.GetAttributeValue(object_td, rt.GetAttributeId("№ КЭ"))
 	return "Rack Object " + ecell[scell.index(("Имя хоста").decode('utf8'))] + " already exist"
     else:
 	if rt.GetDictionaryId(ecell[2]):
@@ -142,17 +145,24 @@ def AddRackObject(rt, ecell, scell):
 		result = rt.db_query_one(sql)
 		#model_id = rt.GetDictionaryId(ecell[scell.index(Attr)])
 		if result == None:
-		    if server_type_id == 4:
-			model_type_id = 11
-		    elif server_type_id == 1502:
-			model_type_id = 31
-		    elif server_type_id == 1504:
-			model_type_id = 33
-		    elif server_type_id == 50091:
-			model_type_id = 24
-		    else:
-			model_type_id = 12
-		    sql = "INSERT INTO Dictionary (chapter_id, dict_sticky, dict_value) VALUES (%d, 'yes', '%s')" % (model_type_id, ecell[scell.index(Attr)])
+		#    if server_type_id == 4:
+		#	model_type_id = 11
+		#    elif server_type_id == 1502:
+		#	model_type_id = 31
+		#    elif server_type_id == 1504:
+		#	model_type_id = 33
+		#    elif server_type_id == 50091:
+		#	model_type_id = 24
+		#    elif server_type_id == 50124:
+		#	model_type_id = 18
+		#    elif server_type_id == 50126:
+		#	model_type_id = 18
+		#    else:
+		#	model_type_id = 12
+		
+		    sql = "INSERT INTO Dictionary (chapter_id, dict_sticky, dict_value) SELECT chapter_id, 'yes', '%s' FROM racktables_db.AttributeMap where attr_id=2 and objtype_id=%d" % (ecell[scell.index(Attr)], server_type_id)
+		    #sql = "INSERT INTO Dictionary (chapter_id, dict_sticky, dict_value) VALUES (%d, 'yes', '%s')" % (model_type_id, ecell[scell.index(Attr)])
+		    raw_input("Press Enter to continue...")
 		    rt.db_insert(sql)
 		model_id = rt.GetDictionaryId(ecell[scell.index(Attr)])
 		print "Модель " + str((ecell[scell.index(Attr)]).encode('utf8')) + " "+ str(model_id)
@@ -166,7 +176,7 @@ def AddRackObject(rt, ecell, scell):
 		rt.db_insert(sql)
 	    #Plecement Server to Rack
 	    elif cattr == "Юнит №":
-		racks = ecell[scell.index(Attr)+3].split("-")
+		racks = ecell[scell.index(("Стойка").decode('utf8'))].split("-")
 		for rack in racks:
 		    rack = rack.encode('utf8')
 		    if re.match('\d', str(ecell[scell.index(Attr)])):
@@ -227,7 +237,7 @@ def AddRackObject(rt, ecell, scell):
 			else:
 			    print "Не размещено: Ошибочные данные размещения"
 		#raw_input("Press Enter to continue...")
-		rt.InsertAttribute(object_id,server_type_id,10083,ecell[scell.index(Attr)+2],"NULL",hostname)
+		rt.InsertAttribute(object_id,server_type_id,10083,ecell[scell.index(("Комната").decode('utf8'))],"NULL",hostname)
 	    #Adding Ports count
 	    elif cattr == "Всего" and added == 0:
 		print "Кабели"
@@ -283,7 +293,6 @@ with open ('outfile', 'rb') as fp:
     ecell = pickle.load(fp)
 with open ('sfile', 'rb') as fp:
     scell = pickle.load(fp)
-print scell[0]
 
 # Initialize rtapi with database connection
 print("Initializing RT Api object")
@@ -294,11 +303,11 @@ rt.UpdateNetworkInterfaceMAC = partial(UpdateNetworkInterfaceMAC, rt)
 rt.AssignAnywhereChassisSlot = partial(AssignAnywhereChassisSlot, rt)
 
 #Main part ADD RACK OBJECT
-#print AddRackObject(rt,ecell, scell)
+print AddRackObject(rt,ecell, scell)
 
 # List all objects from database
 print rt.ListObjects()
-#exit()
+exit()
 
 # Parsing from Excel
 wb = openpyxl.load_workbook(filename = 'rvc.xlsx', read_only=True)
