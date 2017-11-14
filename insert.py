@@ -28,7 +28,6 @@ def AssignAnywhereChassisSlot(self,chassis_name,slot_number,server_name, object_
         print server_id
         self.db_insert(sql)
 
-
     # Assign server to chassis
     # Check if it's connected
     sql = "SELECT parent_entity_id FROM EntityLink WHERE child_entity_type = 'object' AND child_entity_id = %d" % (server_id)
@@ -54,12 +53,12 @@ def AssignAnywhereChassisSlot(self,chassis_name,slot_number,server_name, object_
         self.InsertLog(chassis_id, "Linked with server %s" % (server_name))
         self.InsertLog(server_id, "Linked with Blade Chassis %s" % (chassis_name))
 
-def AssignServerUnit(self,rack_name,unit_number,server_name):
+def AssignServerUnit(self,rack_name,unit_number,server_name, atoms = ['front']):
     '''Assign server objects to server chassis'''
     unit_number = re.sub(r'\s', '', str(unit_number))
     #numbers = unit_number.split(",")
     numbers = re.split(r'[.,]',unit_number)
-    atoms = ['front', 'interior', 'rear']
+    #atoms = ['front', 'interior', 'rear']
     reorder = []
     for el in numbers:
 	#print el
@@ -78,7 +77,8 @@ def AssignServerUnit(self,rack_name,unit_number,server_name):
     #print numbers
     for unit in reorder:
 	#sql = "SELECT object_id FROM RackSpace where rack_id= %d AND unit_no = '%s'" % (rack_id, unit)
-	sql = "SELECT O.name, O.objtype_id FROM RackSpace AS RS LEFT JOIN Object AS O ON RS.object_id=O.id where RS.rack_id= %d AND unit_no = '%s' limit 1" % (rack_id, unit)
+	#sql = "SELECT O.name, O.objtype_id FROM RackSpace AS RS LEFT JOIN Object AS O ON RS.object_id=O.id where RS.rack_id= %d AND unit_no = '%s' limit 1" % (rack_id, unit)
+	sql = "SELECT O.name, O.objtype_id FROM RackSpace AS RS LEFT JOIN Object AS O ON RS.object_id=O.id where RS.rack_id= %d AND unit_no = '%s' AND RS.atom = '%s' limit 1" % (rack_id, unit, atoms[0])
 	result = self.db_query_one(sql)
 	if result == None:
 	    for atom in atoms:
@@ -111,13 +111,19 @@ def MatchAttributeId(self,searchstring):
 	getted_id = self.GetAttributeId(searchstring)
     return getted_id
 
+def TranslateSymbol(symbol_tr):
+    symbols = (u"абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ",
+       u"abvgdeejzijklmnoprstufhzcss_y_euaABVGDEEJZIJKLMNOPRCTUFHZCSS_Y_EUA")
+    tr = dict( [ (ord(a), ord(b)) for (a, b) in zip(*symbols) ] )
+    return symbol_tr.translate(tr)  # looks good
+
 def AddRackObject(rt, ecell, scell):
     #Insert New Rack Object
     #hostname = ecell[61]
     hostname = ecell[scell.index(("Имя хоста").decode('utf8'))]
     service_purpose = ecell[scell.index(("Назначение").decode('utf8'))]
 
-    if (hostname == 'N/A' or hostname == 'N/A' or hostname == 'N/A' or hostname == ('не применимо').decode('utf8') or hostname == ('не установлено').decode('utf8')):
+    if (hostname == 'N/A' or hostname == 'N/A' or hostname == 'N/A' or hostname == ('не применимо').decode('utf8') or hostname == ('не установлено').decode('utf8') or hostname == ('Не применимо').decode('utf8') ):
 	hostname = ecell[scell.index(("№ КЭ").decode('utf8'))]
     
     #Action during process
@@ -165,12 +171,15 @@ def AddRackObject(rt, ecell, scell):
 
     #Adding General Attribute
     for Attr in scell:
-        cattr = re.sub(r'\s+', ' ', Attr.encode('utf8'))
+	cattr = ' '.join(Attr.split())
+        cattr = re.sub(r'\s+', ' ', cattr.encode('utf8'))
         #Adding Device model
         if cattr == "Модель":
-    	    sql = "SELECT dict_key FROM Dictionary WHERE dict_value = '%s'" % (ecell[scell.index(Attr)])
+    	    #sql = "SELECT dict_key FROM Dictionary WHERE dict_value = '%s' and objtype_id=%d" % (ecell[scell.index(Attr)], server_type_id)
+    	    sql = "SELECT dict_key from racktables_db.Dictionary INNER JOIN racktables_db.AttributeMap ON Dictionary.chapter_id = AttributeMap.chapter_id where AttributeMap.attr_id=2 and AttributeMap.objtype_id=%d and dict_value='%s'" % (server_type_id, ecell[scell.index(Attr)])
+    	    #print sql
     	    result = rt.db_query_one(sql)
-    	    print result
+    	    #print result
 	    #model_id = rt.GetDictionaryId(ecell[scell.index(Attr)])
 	    if result == None:
 		#    if server_type_id == 4:
@@ -190,26 +199,38 @@ def AddRackObject(rt, ecell, scell):
 		
 	        sql = "INSERT INTO Dictionary (chapter_id, dict_sticky, dict_value) SELECT chapter_id, 'yes', '%s' FROM racktables_db.AttributeMap where attr_id=2 and objtype_id=%d" % (ecell[scell.index(Attr)], server_type_id)
 	        #sql = "INSERT INTO Dictionary (chapter_id, dict_sticky, dict_value) VALUES (%d, 'yes', '%s')" % (model_type_id, ecell[scell.index(Attr)])
-	        raw_input("Press Enter to continue...")
+	        #raw_input("Press Enter to continue...")
 	        rt.db_insert(sql)
-	    model_id = rt.GetDictionaryId(ecell[scell.index(Attr)])
+	        sql = "SELECT dict_key from racktables_db.Dictionary INNER JOIN racktables_db.AttributeMap ON Dictionary.chapter_id = AttributeMap.chapter_id where AttributeMap.attr_id=2 and AttributeMap.objtype_id=%d and dict_value='%s'" % (server_type_id, ecell[scell.index(Attr)])
+    		result = rt.db_query_one(sql)
+    		model_id = result[0]
+	    else:
+		model_id = result[0]
+	    
+	    #model_id = rt.GetDictionaryId(ecell[scell.index(Attr)])
 	    print "Модель " + str((ecell[scell.index(Attr)]).encode('utf8')) + " "+ str(model_id)
 	    attr_id  = int(rt.MatchAttributeId(Attr));
 	    sql = "SELECT uint_value FROM AttributeValue WHERE object_id = %d AND attr_id = %d AND object_tid = %d" % (object_id, attr_id, server_type_id)
 	    result = rt.db_query_one(sql)
+	    #print result
 	    if result == None:
 	        sql = "INSERT INTO AttributeValue (uint_value, object_id, attr_id,object_tid) VALUES (%d, %d, %d, %d)" % (model_id, object_id, attr_id, server_type_id)
 	    else:
 	        sql = "UPDATE AttributeValue SET uint_value = %d WHERE object_id = %d AND attr_id = %d AND object_tid = %d" % (model_id, object_id, attr_id, server_type_id)
-	    print sql
+	    #print sql
 	    rt.db_insert(sql)
-	    raw_input("Press Enter to continue...")
+	    #raw_input("Press Enter to continue...")
 	#Plecement Server to Rack
 	elif cattr == "Юнит №":
 		#racks = ecell[scell.index(("Стойка").decode('utf8'))].split("-")
 		racks = re.split(r'[-.,]',ecell[scell.index(("Стойка").decode('utf8'))])
 		for rack in racks:
-		    rack = rack.encode('utf8')
+		    rack = TranslateSymbol(rack)
+		    rack = re.sub(r'\(.+\)', '', rack.encode('utf8'))
+		    #rack = rack.encode('utf8')
+		    print rack
+		    raw_input("Press Enter to continue...")
+		    
 		    if re.match('\d', str(ecell[scell.index(Attr)])):
 			print "Размещено"
 			if rt.GetObjectId(rack):
@@ -232,7 +253,9 @@ def AddRackObject(rt, ecell, scell):
 			    else:
 				print "Такой стойки нет " + str(rack)
 				continue
-			assign = rt.AssignServerUnit(rack,ecell[scell.index(Attr)],hostname)
+			c_unit = re.sub(r'--', '-', str(ecell[scell.index(Attr)]).encode('utf8'))
+			print c_unit
+			assign = rt.AssignServerUnit(rack,c_unit,hostname)
 			if assign != None:
 			    if assign[1] == 1502 and (server_type_id == 4 or server_type_id == 50093 or server_type_id == 50137):
 				print "Наш cервер сидит в шасси " + str(assign[0])
@@ -253,7 +276,12 @@ def AddRackObject(rt, ecell, scell):
 				    rt.AssignChassisSlot(assign[0], chassis_count, hostname)
 
 			    elif assign[1] != None and assign[0] != hostname:
-				print "Ошибка добавления сервера в шасси " + str(assign)
+				print "Ошибка добавления сервера в шасси, попробуем сунуть сзади " + str(assign)
+				assign = rt.AssignServerUnit(rack,c_unit,hostname, ["rear"])
+				if (assign == None):
+				    print "Сзади получилось"
+				else:
+				    print "ОШИБКА РАЗМЕЩЕНИЯ СЕРВЕРА!!!"
 			    else:
 				print "Уже добавлено " + str(assign[0])
 		    else:
@@ -294,9 +322,16 @@ def AddRackObject(rt, ecell, scell):
 	#Exception Адрес
 	elif cattr == "Адрес":
 		print 
+	#Exception Конутр
+	elif cattr == "Конутр":
+		attr_id  = int(rt.MatchAttributeId("Контур"));
+		#print " Тип сервера: " + str(server_type_id)
+		print "Attribute " + Attr + " '" + str(attr_id) + "'"
+		print u"Контур: " + ecell[scell.index(Attr)] 
+		rt.InsertAttribute(object_id,server_type_id,attr_id,ecell[scell.index(Attr)],"NULL",hostname)
 	#adding Other Attribute
-	elif rt.MatchAttributeId(Attr):
-		attr_id  = int(rt.MatchAttributeId(Attr));
+	elif rt.MatchAttributeId(cattr):
+		attr_id  = int(rt.MatchAttributeId(cattr));
 		#print " Тип сервера: " + str(server_type_id)
 		print "Attribute " + Attr + " '" + str(attr_id) + "'"
 		#+ " Значение: " + ecell[scell.index(Attr)] 
@@ -366,7 +401,7 @@ for sheetName in wb.get_sheet_names():
 	i = 5
 	for row in sheet.iter_rows(min_row=5):
 	    print row[0].value
-	    if row[0].value == None:
+	    if row[1].value == None:
 		break
     	    ecell = []
 	    for cell in row:
