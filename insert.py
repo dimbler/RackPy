@@ -67,6 +67,8 @@ def AssignServerUnit(self,rack_name,unit_number,server_name, atoms = ['front']):
     	    #numbers.remove(el)
 	    for x in range(int(m.group(1)), int(m.group(2))+1):
     		reorder.append(str(x))
+	    for x in range(int(m.group(2)), int(m.group(1))+1):
+    		reorder.append(str(x))
     	else:
     	    reorder.append(el)
 
@@ -83,6 +85,7 @@ def AssignServerUnit(self,rack_name,unit_number,server_name, atoms = ['front']):
 	if result == None:
 	    for atom in atoms:
         	sql = "INSERT INTO RackSpace (rack_id, unit_no, atom, state, object_id) VALUES ('%s', %d, '%s', 'T', %d)" % (rack_id, int(unit), atom, server_id)
+        	print sql
         	self.db_insert(sql)
         else:
     	    return result
@@ -122,9 +125,15 @@ def AddRackObject(rt, ecell, scell):
     #hostname = ecell[61]
     hostname = ecell[scell.index(("Имя хоста").decode('utf8'))]
     service_purpose = ecell[scell.index(("Назначение").decode('utf8'))]
-
-    if (hostname == 'N/A' or hostname == 'N/A' or hostname == 'N/A' or hostname == ('не применимо').decode('utf8') or hostname == ('не установлено').decode('utf8') or hostname == ('Не применимо').decode('utf8') ):
-	hostname = ecell[scell.index(("№ КЭ").decode('utf8'))]
+    serial = ecell[scell.index(("Серийный номер").decode('utf8'))]
+    
+    if (hostname == 'N/A' or hostname == 'N/A' or hostname == 'N/A' or hostname == ('не применимо').decode('utf8') or hostname == ('не установлено').decode('utf8') or hostname == ('Не применимо').decode('utf8')  or hostname == ('нет данных').decode('utf8') ):
+	noke = ecell[scell.index(("№ КЭ").decode('utf8'))]
+	if ( noke != None and noke != 'N/A' and noke != u'б\н' and len(noke) > 3 ):
+	    hostname = noke
+	else:
+	    serial = ecell[scell.index(("Серийный номер").decode('utf8'))]
+	    hostname = serial
     
     #Action during process
     action = 0
@@ -134,10 +143,10 @@ def AddRackObject(rt, ecell, scell):
 	file_ke = ecell[scell.index(("№ КЭ").decode('utf8'))]
 	if rt.GetAttributeValue(object_td, rt.GetAttributeId("№ КЭ")):
 	    stored_ke = rt.GetAttributeValue(object_td, rt.GetAttributeId("№ КЭ"))[0]
-	    if file_ke == stored_ke:
+	    if file_ke == stored_ke or len(file_ke) <= 3:
 		#Already added
 		action = 0
-		return "Rack Object " + ecell[scell.index(("Имя хоста").decode('utf8'))] + " already exist in " + stored_ke
+		return "Rack Object " + hostname + " already exist in " + stored_ke
 	    else:
 		#It means hostname duplicate
 		hostname = hostname+"-1"
@@ -160,7 +169,7 @@ def AddRackObject(rt, ecell, scell):
         rt.db_insert(sql)
         print ecell[2] + " added to dictionary"
         server_type_id = rt.GetDictionaryId(ecell[2])
-        raw_input("Press Enter to continue...")
+        #raw_input("Press Enter to continue...")
 
     #Adding Rack Object
     if action == 1:
@@ -229,7 +238,7 @@ def AddRackObject(rt, ecell, scell):
 		    rack = re.sub(r'\(.+\)', '', rack.encode('utf8'))
 		    #rack = rack.encode('utf8')
 		    print rack
-		    raw_input("Press Enter to continue...")
+		    #raw_input("Press Enter to continue...")
 		    
 		    if re.match('\d', str(ecell[scell.index(Attr)])):
 			print "Размещено"
@@ -381,9 +390,9 @@ wb = openpyxl.load_workbook(filename = 'gisgmp.xlsx', read_only=True)
 print "Excel loaded successfully"
 for sheetName in wb.get_sheet_names():
 #    if re.match(("Сервера|СЕРВЕРА").decode('utf8'), sheetName, re.IGNORECASE):
-    if re.match(("Сети|СЕТИ").decode('utf8'), sheetName, re.IGNORECASE):
+#    if re.match(("Сети|СЕТИ").decode('utf8'), sheetName, re.IGNORECASE):
 #    if re.match(("Соби|СОБИ").decode('utf8'), sheetName, re.IGNORECASE):
-#    if re.match(("СХД и СРК").decode('utf8'), sheetName, re.IGNORECASE):
+    if re.match(("СХД и СРК").decode('utf8'), sheetName, re.IGNORECASE):
 	print "Work with shet " + sheetName
 	sheet = wb[sheetName]
         scell = []
